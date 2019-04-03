@@ -28,11 +28,12 @@ func init() {
 		"getset":   GetSet,
 		"getrange": GetRange,
 		// "msetnx":   MSetNx,
-		"setnx":    SetNx,
-		"setex":    SetEx,
-		"psetex":   PSetEx,
-		"setrange": SetRange,
-		// "setbit":      SetBit,
+		"setnx":       SetNx,
+		"setex":       SetEx,
+		"psetex":      PSetEx,
+		"setrange":    SetRange,
+		"setbit":      SetBit,
+		"getbit":      GetBit,
 		"incr":        Incr,
 		"incrby":      IncrBy,
 		"decr":        Decr,
@@ -75,6 +76,8 @@ func init() {
 		"hsetnx":       HSetNX,
 		"hmget":        HMGet,
 		"hmset":        HMSet,
+		"hmslot":       HMSlot,
+		"hscan":        HScan,
 
 		// sets
 		"sadd":     SAdd,
@@ -127,6 +130,8 @@ func init() {
 		"incrby":      Desc{Proc: AutoCommit(IncrBy), Cons: Constraint{3, flags("wmF"), 1, 1, 1}},
 		"decrby":      Desc{Proc: AutoCommit(DecrBy), Cons: Constraint{3, flags("wmF"), 1, 1, 1}},
 		"incrbyfloat": Desc{Proc: AutoCommit(IncrByFloat), Cons: Constraint{3, flags("wmF"), 1, 1, 1}},
+		"setbit":      Desc{Proc: AutoCommit(SetBit), Cons: Constraint{4, flags("wm"), 1, 1, 1}},
+		"getbit":      Desc{Proc: AutoCommit(GetBit), Cons: Constraint{3, flags("r"), 1, 1, 1}},
 
 		// keys
 		"type":      Desc{Proc: AutoCommit(Type), Cons: Constraint{2, flags("rF"), 1, 1, 1}},
@@ -169,6 +174,8 @@ func init() {
 		"hsetnx":       Desc{Proc: AutoCommit(HSetNX), Cons: Constraint{4, flags("wmF"), 1, 1, 1}},
 		"hmget":        Desc{Proc: AutoCommit(HMGet), Cons: Constraint{-3, flags("rF"), 1, 1, 1}},
 		"hmset":        Desc{Proc: AutoCommit(HMSet), Cons: Constraint{-3, flags("wmF"), 1, 1, 1}},
+		"hmslot":       Desc{Proc: AutoCommit(HMSlot), Cons: Constraint{3, flags("wF"), 1, 1, 1}},
+		"hscan":        Desc{Proc: AutoCommit(HScan), Cons: Constraint{-3, flags("rR"), 0, 0, 0}},
 
 		// sets
 		"sadd":     Desc{Proc: AutoCommit(SAdd), Cons: Constraint{-3, flags("wmF"), 1, 1, 1}},

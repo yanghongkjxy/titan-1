@@ -27,9 +27,11 @@ import (
 func main() {
 	var showVersion bool
 	var confPath string
+	var pdAddrs string
 
 	flag.BoolVar(&showVersion, "v", false, "Show Version")
 	flag.StringVar(&confPath, "c", "conf/titan.toml", "conf file path")
+	flag.StringVar(&pdAddrs, "pd-addrs", "", "pd cluster addresses")
 	flag.Parse()
 
 	if showVersion {
@@ -41,6 +43,9 @@ func main() {
 	if err := configo.Load(confPath, config); err != nil {
 		fmt.Printf("unmarshal config file failed, %s\n", err)
 		os.Exit(1)
+	}
+	if pdAddrs != "" {
+		config.Tikv.PdAddrs = pdAddrs
 	}
 
 	if err := ConfigureZap(config.Logger.Name, config.Logger.Path, config.Logger.Level,
@@ -55,7 +60,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	store, err := db.Open(&config.Server.Tikv)
+	store, err := db.Open(&config.Tikv)
 	if err != nil {
 		zap.L().Fatal("open db failed", zap.Error(err))
 		os.Exit(1)

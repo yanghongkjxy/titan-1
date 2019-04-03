@@ -38,6 +38,9 @@ var (
 	// ErrEncodingMismatch object encoding type
 	ErrEncodingMismatch = errors.New("error object encoding type")
 
+	// ErrStorageRetry storage err and try again later
+	ErrStorageRetry = errors.New("Storage err and try again later")
+
 	// IsErrNotFound returns true if the key is not found, otherwise return false
 	IsErrNotFound = store.IsErrNotFound
 
@@ -92,12 +95,14 @@ func BatchGetValues(txn *Transaction, keys [][]byte) ([][]byte, error) {
 type DB struct {
 	Namespace string
 	ID        DBID
+	conf      *conf.DB
 	kv        *RedisStore
 }
 
 // RedisStore wraps store.Storage
 type RedisStore struct {
 	store.Storage
+	conf *conf.Tikv
 }
 
 // Open a storage instance
@@ -106,18 +111,18 @@ func Open(conf *conf.Tikv) (*RedisStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	rds := &RedisStore{s}
+	rds := &RedisStore{Storage: s, conf: conf}
 	sysdb := rds.DB(sysNamespace, sysDatabaseID)
-	go StartGC(sysdb)
-	go StartExpire(sysdb)
+	go StartGC(sysdb, &conf.GC)
+	go StartExpire(sysdb, &conf.Expire)
 	go StartZT(sysdb, &conf.ZT)
-
+	go StartTikvGC(sysdb, &conf.TikvGC)
 	return rds, nil
 }
 
 // DB returns a DB object with sepcific ID
 func (rds *RedisStore) DB(namesapce string, id int) *DB {
-	return &DB{Namespace: namesapce, ID: DBID(id), kv: rds}
+	return &DB{Namespace: namesapce, ID: DBID(id), kv: rds, conf: &rds.conf.DB}
 }
 
 // Close the storage instance
@@ -142,12 +147,7 @@ func (db *DB) Begin() (*Transaction, error) {
 
 // Prefix returns the prefix of a DB object
 func (db *DB) Prefix() []byte {
-	var prefix []byte
-	prefix = append(prefix, []byte(db.Namespace)...)
-	prefix = append(prefix, ':')
-	prefix = append(prefix, db.ID.Bytes()...)
-	prefix = append(prefix, ':')
-	return prefix
+	return dbPrefix(db.Namespace, db.ID.Bytes())
 }
 
 // Commit a transaction
@@ -252,10 +252,39 @@ func DataKey(db *DB, key []byte) []byte {
 	return dkey
 }
 
+// MetaSlotKey builds a meta slot key from a slot id
+func MetaSlotKey(db *DB, objID, slotID []byte) []byte {
+	var skey []byte
+	skey = append(skey, []byte(db.Namespace)...)
+	skey = append(skey, ':')
+	skey = append(skey, db.ID.Bytes()...)
+	skey = append(skey, ':', 'M', 'S', ':')
+	skey = append(skey, objID...)
+	skey = append(skey, ':')
+	skey = append(skey, slotID...)
+	return skey
+}
+
+func dbPrefix(ns string, id []byte) []byte {
+	var prefix []byte
+	prefix = append(prefix, []byte(ns)...)
+	prefix = append(prefix, ':')
+	prefix = append(prefix, id...)
+	prefix = append(prefix, ':')
+	return prefix
+}
+
+func sysPrefix(ns string, id byte) []byte {
+	b := []byte{}
+	b = append(b, sysNamespace...)
+	b = append(b, ':', id, ':')
+	return b
+}
+
 func flushLease(txn store.Transaction, key, id []byte, interval time.Duration) error {
 	databytes := make([]byte, 24)
 	copy(databytes, id)
-	ts := uint64((time.Now().Add(interval * time.Second).Unix()))
+	ts := uint64((time.Now().Add(interval).Unix()))
 	binary.BigEndian.PutUint64(databytes[16:], ts)
 
 	if err := txn.Set(key, databytes); err != nil {
@@ -328,6 +357,9 @@ func isLeader(db *DB, leader []byte, id []byte, interval time.Duration) (bool, e
 		label = "GC"
 	case bytes.Equal(leader, sysExpireLeader):
 		label = "EX"
+	case bytes.Equal(leader, sysTikvGCLeader):
+		label = "TGC"
+
 	}
 
 	for {

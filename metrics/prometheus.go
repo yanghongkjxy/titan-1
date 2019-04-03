@@ -5,6 +5,7 @@ import (
 
 	"go.uber.org/zap/zapcore"
 
+	sdk_metrics "github.com/pingcap/tidb/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -19,6 +20,8 @@ const (
 	ztinfo    = "ztinfo"
 	labelName = "level"
 	gckeys    = "gckeys"
+	expire    = "expire"
+	tikvGC    = "tikvgc"
 )
 
 var (
@@ -29,12 +32,14 @@ var (
 	multiLabel   = []string{biz, command}
 	ztInfoLabel  = []string{ztinfo}
 	gcKeysLabel  = []string{gckeys}
+	expireLabel  = []string{expire}
+	tikvGCLabel  = []string{tikvGC}
 
 	// global prometheus object
 	gm *Metrics
 )
 
-//Metrics prometheus statistics
+// Metrics prometheus statistics
 type Metrics struct {
 	//biz
 	ConnectionOnlineGaugeVec *prometheus.GaugeVec
@@ -44,6 +49,12 @@ type Metrics struct {
 	IsLeaderGaugeVec    *prometheus.GaugeVec
 	LRangeSeekHistogram prometheus.Histogram
 	GCKeysCounterVec    *prometheus.CounterVec
+
+	//expire
+	ExpireKeysTotal *prometheus.CounterVec
+
+	//tikvGC
+	TikvGCTotal *prometheus.CounterVec
 
 	//command biz
 	CommandCallHistogramVec *prometheus.HistogramVec
@@ -56,7 +67,7 @@ type Metrics struct {
 	LogMetricsCounterVec *prometheus.CounterVec
 }
 
-//init create global object
+// init create global object
 func init() {
 	gm = &Metrics{}
 
@@ -135,11 +146,27 @@ func init() {
 		}, gcKeysLabel)
 	prometheus.MustRegister(gm.GCKeysCounterVec)
 
+	gm.ExpireKeysTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "expire_keys_total",
+			Help:      "the number of expire keys added or expired",
+		}, expireLabel)
+	prometheus.MustRegister(gm.ExpireKeysTotal)
+
+	gm.TikvGCTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "tikv_gc_total",
+			Help:      "the number of tikv gc total by exec",
+		}, tikvGCLabel)
+	prometheus.MustRegister(gm.TikvGCTotal)
+
 	gm.IsLeaderGaugeVec = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "is_leader",
-			Help:      "mark titan is leader for gc/expire/zt",
+			Help:      "mark titan is leader for gc/expire/zt/tikvgc",
 		}, leaderLabel)
 	prometheus.MustRegister(gm.IsLeaderGaugeVec)
 
@@ -152,16 +179,20 @@ func init() {
 		[]string{labelName},
 	)
 	prometheus.MustRegister(gm.LogMetricsCounterVec)
-
-	http.Handle("/titan/metrics", prometheus.Handler())
+	sdk_metrics.RegisterMetrics()
 }
 
-//GetMetrics return metrics object
+// GetMetrics return metrics object
 func GetMetrics() *Metrics {
 	return gm
 }
 
-//Measure logger level rate
+// MetricsHandle register the metrics handle
+func MetricsHandle() {
+	http.Handle("/metrics", prometheus.Handler())
+}
+
+// Measure logger level rate
 func Measure(e zapcore.Entry) error {
 	label := e.LoggerName + "_" + e.Level.String()
 	gm.LogMetricsCounterVec.WithLabelValues(label).Inc()
